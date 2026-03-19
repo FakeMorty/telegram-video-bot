@@ -1,5 +1,7 @@
 import random
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
 from app.database.session import SessionLocal
 from app.database.models import Video, User, VideoView, VideoRating
 
@@ -36,10 +38,11 @@ async def save_video(
         if not user:
             return None, "user_not_found"
 
-        existing = await session.execute(
+        existing_result = await session.execute(
             select(Video).where(Video.telegram_file_unique_id == file_unique_id)
         )
-        if existing.scalar_one_or_none():
+        existing = existing_result.scalar_one_or_none()
+        if existing:
             return None, "duplicate"
 
         video = Video(
@@ -51,15 +54,22 @@ async def save_video(
             file_size=file_size,
         )
         session.add(video)
-        await session.commit()
-        await session.refresh(video)
-        return video, None
+
+        try:
+            await session.commit()
+            await session.refresh(video)
+            return video, None
+        except IntegrityError:
+            await session.rollback()
+            return None, "duplicate"
 
 
 async def get_next_pending_video():
     async with SessionLocal() as session:
         result = await session.execute(
-            select(Video).where(Video.status == "pending").order_by(Video.id.asc())
+            select(Video)
+            .where(Video.status == "pending")
+            .order_by(Video.id.asc())
         )
         return result.scalars().first()
 
@@ -70,6 +80,7 @@ async def approve_video(video_id: int):
             select(Video).where(Video.id == video_id)
         )
         video = result.scalar_one_or_none()
+
         if not video:
             return None
 
@@ -85,6 +96,7 @@ async def reject_video(video_id: int, reason: str):
             select(Video).where(Video.id == video_id)
         )
         video = result.scalar_one_or_none()
+
         if not video:
             return None
 
@@ -111,6 +123,7 @@ async def get_random_video_for_user(telegram_user_id: int):
             select(User).where(User.telegram_id == telegram_user_id)
         )
         user = user_result.scalar_one_or_none()
+
         if not user:
             return None, "user_not_found"
 
@@ -119,13 +132,15 @@ async def get_random_video_for_user(telegram_user_id: int):
         )
         viewed_ids = [row[0] for row in viewed_result.all()]
 
-        result = await session.execute(
-            select(Video).where(
-                Video.status == "approved",
-                Video.uploader_user_id != user.id,
-                Video.id.not_in(viewed_ids) if viewed_ids else True
-            )
+        query = select(Video).where(
+            Video.status == "approved",
+            Video.uploader_user_id != user.id,
         )
+
+        if viewed_ids:
+            query = query.where(Video.id.not_in(viewed_ids))
+
+        result = await session.execute(query)
         videos = result.scalars().all()
 
         if not videos:
@@ -140,26 +155,42 @@ async def mark_video_viewed(telegram_user_id: int, video_id: int):
             select(User).where(User.telegram_id == telegram_user_id)
         )
         user = user_result.scalar_one_or_none()
-        if not user:
-            return None
 
-        existing = await session.execute(
+        if not user:
+            return None, "user_not_found"
+
+        video_result = await session.execute(
+            select(Video).where(Video.id == video_id)
+        )
+        video = video_result.scalar_one_or_none()
+
+        if not video:
+            return None, "video_not_found"
+
+        existing_result = await session.execute(
             select(VideoView).where(
                 VideoView.user_id == user.id,
                 VideoView.video_id == video_id
             )
         )
-        if existing.scalar_one_or_none():
-            return None
+        existing = existing_result.scalar_one_or_none()
+
+        if existing:
+            return existing, "already_viewed"
 
         view = VideoView(
             user_id=user.id,
             video_id=video_id
         )
         session.add(view)
-        await session.commit()
-        await session.refresh(view)
-        return view
+
+        try:
+            await session.commit()
+            await session.refresh(view)
+            return view, None
+        except IntegrityError:
+            await session.rollback()
+            return None, "already_viewed"
 
 
 async def rate_video(telegram_user_id: int, video_id: int, rating_value: int):
@@ -168,8 +199,17 @@ async def rate_video(telegram_user_id: int, video_id: int, rating_value: int):
             select(User).where(User.telegram_id == telegram_user_id)
         )
         user = user_result.scalar_one_or_none()
+
         if not user:
             return None, "user_not_found"
+
+        video_result = await session.execute(
+            select(Video).where(Video.id == video_id)
+        )
+        video = video_result.scalar_one_or_none()
+
+        if not video:
+            return None, "video_not_found"
 
         existing_result = await session.execute(
             select(VideoRating).where(
@@ -191,6 +231,11 @@ async def rate_video(telegram_user_id: int, video_id: int, rating_value: int):
             rating=rating_value
         )
         session.add(rating)
-        await session.commit()
-        await session.refresh(rating)
-        return rating, None
+
+        try:
+            await session.commit()
+            await session.refresh(rating)
+            return rating, None
+        except IntegrityError:
+            await session.rollback()
+            return None, "rating_conflict"

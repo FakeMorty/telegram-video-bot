@@ -1,5 +1,4 @@
-from aiogram import Router
-from aiogram import F
+from aiogram import Router, F
 from aiogram.types import Message
 
 from app.services.users import get_user_by_telegram_id
@@ -10,6 +9,10 @@ router = Router()
 
 @router.message(F.text == "📤 Загрузить")
 async def upload_handler(message: Message):
+    if not message.from_user:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
     user = await get_user_by_telegram_id(message.from_user.id)
     if not user:
         await message.answer("Сначала нажмите /start")
@@ -36,6 +39,10 @@ async def upload_handler(message: Message):
 
 @router.message(F.video)
 async def handle_video_upload(message: Message):
+    if not message.from_user:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
     user = await get_user_by_telegram_id(message.from_user.id)
     if not user:
         await message.answer("Сначала нажмите /start")
@@ -54,14 +61,22 @@ async def handle_video_upload(message: Message):
         return
 
     video = message.video
+    if not video:
+        await message.answer("Видео не найдено.")
+        return
 
-    saved_video, error = await save_video(
-        uploader_telegram_id=message.from_user.id,
-        file_id=video.file_id,
-        file_unique_id=video.file_unique_id,
-        duration=video.duration,
-        file_size=video.file_size,
-    )
+    try:
+        saved_video, error = await save_video(
+            uploader_telegram_id=message.from_user.id,
+            file_id=video.file_id,
+            file_unique_id=video.file_unique_id,
+            duration=video.duration,
+            file_size=video.file_size,
+        )
+    except Exception as e:
+        print("Error while saving video:", repr(e))
+        await message.answer("❌ Ошибка при сохранении видео.")
+        return
 
     if error == "duplicate":
         await message.answer("⚠️ Это видео уже было загружено ранее.")

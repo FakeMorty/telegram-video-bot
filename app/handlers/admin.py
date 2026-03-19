@@ -1,23 +1,25 @@
-from aiogram import Router
-from aiogram import F
+from aiogram import Router, F, Bot
+from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
 from app.config import ADMINS
 from app.keyboards.admin import moderation_kb, reject_reasons_kb
-from app.services.videos import get_next_pending_video
-from app.services.videos import approve_video
-from app.services.videos import reject_video
-from app.services.videos import get_video_with_uploader
+from app.services.videos import (
+    get_next_pending_video,
+    approve_video,
+    reject_video,
+    get_video_with_uploader,
+)
 from app.services.balance import add_balance_by_user_id
 
 router = Router()
 
 
-async def send_next_pending(message_or_callback, bot):
+async def send_next_pending(message_or_callback, bot: Bot):
     video = await get_next_pending_video()
 
     if not video:
-        if hasattr(message_or_callback, "message"):
+        if hasattr(message_or_callback, "message") and message_or_callback.message:
             await message_or_callback.message.answer("Очередь модерации пуста.")
         else:
             await message_or_callback.answer("Очередь модерации пуста.")
@@ -39,8 +41,12 @@ async def send_next_pending(message_or_callback, bot):
     )
 
 
-@router.message(F.text == "/admin")
-async def admin_panel(message: Message, bot):
+@router.message(Command("admin"))
+async def admin_panel(message: Message, bot: Bot):
+    if not message.from_user:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
     if message.from_user.id not in ADMINS:
         await message.answer("Нет доступа.")
         return
@@ -50,12 +56,28 @@ async def admin_panel(message: Message, bot):
 
 
 @router.callback_query(F.data.startswith("approve:"))
-async def approve_handler(callback: CallbackQuery, bot):
+async def approve_handler(callback: CallbackQuery, bot: Bot):
+    if not callback.from_user:
+        await callback.answer("Не удалось определить пользователя.", show_alert=True)
+        return
+
     if callback.from_user.id not in ADMINS:
         await callback.answer("Нет доступа.", show_alert=True)
         return
 
-    video_id = int(callback.data.split(":")[1])
+    if not callback.data:
+        await callback.answer("Некорректные данные.", show_alert=True)
+        return
+
+    if not callback.message:
+        await callback.answer("Сообщение не найдено.", show_alert=True)
+        return
+
+    try:
+        video_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректный ID видео.", show_alert=True)
+        return
 
     row = await get_video_with_uploader(video_id)
     if not row:
@@ -78,11 +100,11 @@ async def approve_handler(callback: CallbackQuery, bot):
 
     try:
         await bot.send_message(
-            uploader.telegram_id,
-            f"✅ Ваше видео #{video_id} прошло модерацию.\nНачислено 0.5 монеты."
+            chat_id=uploader.telegram_id,
+            text=f"✅ Ваше видео #{video_id} прошло модерацию.\nНачислено 0.5 монеты."
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print("Failed to notify uploader:", repr(e))
 
     await callback.answer("Одобрено")
     await send_next_pending(callback, bot)
@@ -90,11 +112,28 @@ async def approve_handler(callback: CallbackQuery, bot):
 
 @router.callback_query(F.data.startswith("reject:"))
 async def reject_handler(callback: CallbackQuery):
+    if not callback.from_user:
+        await callback.answer("Не удалось определить пользователя.", show_alert=True)
+        return
+
     if callback.from_user.id not in ADMINS:
         await callback.answer("Нет доступа.", show_alert=True)
         return
 
-    video_id = int(callback.data.split(":")[1])
+    if not callback.data:
+        await callback.answer("Некорректные данные.", show_alert=True)
+        return
+
+    if not callback.message:
+        await callback.answer("Сообщение не найдено.", show_alert=True)
+        return
+
+    try:
+        video_id = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректный ID видео.", show_alert=True)
+        return
+
     await callback.message.answer(
         f"Выберите причину отклонения для видео {video_id}:",
         reply_markup=reject_reasons_kb(video_id)
@@ -103,13 +142,29 @@ async def reject_handler(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("reject_reason:"))
-async def reject_reason_handler(callback: CallbackQuery, bot):
+async def reject_reason_handler(callback: CallbackQuery, bot: Bot):
+    if not callback.from_user:
+        await callback.answer("Не удалось определить пользователя.", show_alert=True)
+        return
+
     if callback.from_user.id not in ADMINS:
         await callback.answer("Нет доступа.", show_alert=True)
         return
 
-    _, video_id_str, reason_code = callback.data.split(":")
-    video_id = int(video_id_str)
+    if not callback.data:
+        await callback.answer("Некорректные данные.", show_alert=True)
+        return
+
+    if not callback.message:
+        await callback.answer("Сообщение не найдено.", show_alert=True)
+        return
+
+    try:
+        _, video_id_str, reason_code = callback.data.split(":")
+        video_id = int(video_id_str)
+    except (ValueError, IndexError):
+        await callback.answer("Некорректные данные.", show_alert=True)
+        return
 
     reason_map = {
         "duplicate": "Дубликат",
@@ -136,11 +191,11 @@ async def reject_reason_handler(callback: CallbackQuery, bot):
 
     try:
         await bot.send_message(
-            uploader.telegram_id,
-            f"❌ Ваше видео #{video_id} не прошло модерацию.\nПричина: {reason_text}"
+            chat_id=uploader.telegram_id,
+            text=f"❌ Ваше видео #{video_id} не прошло модерацию.\nПричина: {reason_text}"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print("Failed to notify uploader:", repr(e))
 
     await callback.answer("Отклонено")
     await send_next_pending(callback, bot)

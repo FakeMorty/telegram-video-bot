@@ -8,8 +8,16 @@ from app.keyboards.user import main_menu, rules_kb
 router = Router()
 
 
+def get_main_menu_text(balance: int) -> str:
+    return f"🏠 Главное меню\nБаланс: {balance}"
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    if not message.from_user:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
     user, created = await get_or_create_user(message.from_user)
 
     if not user.agreed_to_rules:
@@ -20,25 +28,35 @@ async def cmd_start(message: Message):
         return
 
     await message.answer(
-        f"🏠 Главное меню\nБаланс: {user.balance}",
+        get_main_menu_text(user.balance),
         reply_markup=main_menu()
     )
 
 
 @router.callback_query(F.data == "accept_rules")
 async def accept_rules_handler(callback: CallbackQuery):
+    if not callback.from_user:
+        await callback.answer("Не удалось определить пользователя.", show_alert=True)
+        return
+
     user = await accept_rules(callback.from_user.id)
 
-    await callback.message.edit_text("✅ Правила приняты.")
-    await callback.message.answer(
-        f"🏠 Главное меню\nБаланс: {user.balance}",
-        reply_markup=main_menu()
-    )
-    await callback.answer()
+    await callback.answer("Правила приняты")
+
+    if callback.message:
+        await callback.message.edit_text("✅ Правила приняты.")
+        await callback.message.answer(
+            get_main_menu_text(user.balance),
+            reply_markup=main_menu()
+        )
 
 
 @router.message(F.text == "👤 Профиль")
 async def profile_handler(message: Message):
+    if not message.from_user:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
     user = await get_user_by_telegram_id(message.from_user.id)
     if not user:
         await message.answer("Сначала нажмите /start")
@@ -65,6 +83,10 @@ async def offers_handler(message: Message):
 
 @router.message(F.text == "👥 Рефералы")
 async def referrals_handler(message: Message):
+    if not message.from_user:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
     user = await get_user_by_telegram_id(message.from_user.id)
     if not user:
         await message.answer("Сначала нажмите /start")

@@ -6,7 +6,7 @@ router = Router()
 
 @router.message(F.text == "🎥 Смотреть")
 async def watch_handler(message: Message):
-    await message.answer("Кнопка Смотреть нажата")
+    await message.answer("🎬 Кнопка Смотреть нажата")
 
 
 @router.callback_query(F.data == "watch_next")

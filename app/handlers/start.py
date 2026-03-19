@@ -1,4 +1,5 @@
 from aiogram import Router, F
+from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery
 
 from app.services.users import get_or_create_user, accept_rules, get_user_by_telegram_id
@@ -7,7 +8,7 @@ from app.keyboards.user import main_menu, rules_kb
 router = Router()
 
 
-@router.message(F.text == "/start")
+@router.message(CommandStart())
 async def cmd_start(message: Message):
     user, created = await get_or_create_user(message.from_user)
 
@@ -47,6 +48,7 @@ async def profile_handler(message: Message):
         f"👤 Профиль\n\n"
         f"ID: {user.telegram_id}\n"
         f"Баланс: {user.balance} монет\n"
+        f"Реферальный код: {user.referral_code}\n"
         f"Статус: {user.status}"
     )
 
@@ -63,4 +65,16 @@ async def offers_handler(message: Message):
 
 @router.message(F.text == "👥 Рефералы")
 async def referrals_handler(message: Message):
-    await message.answer("👥 Реферальная система скоро будет расширена.")
+    user = await get_user_by_telegram_id(message.from_user.id)
+    if not user:
+        await message.answer("Сначала нажмите /start")
+        return
+
+    await message.answer(
+        f"👥 Реферальная система\n\n"
+        f"Ваш реферальный код: {user.referral_code}\n\n"
+        f"Награды:\n"
+        f"• пригласивший: 10 монет\n"
+        f"• приглашённый: 5 монет\n\n"
+        f"Начисление будет после выполнения условий в следующих обновлениях."
+    )

@@ -1,11 +1,16 @@
-from aiogram import Router
-from aiogram import F
+from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 
 from app.services.users import get_or_create_user, accept_rules, get_user_by_telegram_id
 from app.keyboards.user import main_menu, rules_kb
 
 router = Router()
+
+
+def build_referral_link(bot_username: str | None, referral_code: str) -> str:
+    if bot_username:
+        return f"https://t.me/{bot_username}?start={referral_code}"
+    return f"Рефкод: {referral_code}"
 
 
 @router.message(F.text == "/start")
@@ -21,11 +26,17 @@ async def cmd_start(message: Message):
         await message.answer(text, reply_markup=rules_kb())
         return
 
-    bot_info = await message.bot.get_me()
-    referral_link = f"https://t.me/{bot_info.username}?start={user.referral_code}"
+    bot_username = None
+    try:
+        bot_info = await message.bot.get_me()
+        bot_username = bot_info.username
+    except Exception:
+        pass
+
+    referral_link = build_referral_link(bot_username, user.referral_code)
 
     await message.answer(
-        f"Добро пожаловать, {message.from_user.first_name}!\n"
+        f"Добро пожаловать, {message.from_user.first_name or 'пользователь'}!\n"
         f"Ваш баланс: {user.balance} монет\n"
         f"Ваша реферальная ссылка:\n{referral_link}",
         reply_markup=main_menu()
@@ -35,8 +46,15 @@ async def cmd_start(message: Message):
 @router.callback_query(F.data == "accept_rules")
 async def accept_rules_handler(callback: CallbackQuery):
     user = await accept_rules(callback.from_user.id)
-    bot_info = await callback.message.bot.get_me()
-    referral_link = f"https://t.me/{bot_info.username}?start={user.referral_code}"
+
+    bot_username = None
+    try:
+        bot_info = await callback.message.bot.get_me()
+        bot_username = bot_info.username
+    except Exception:
+        pass
+
+    referral_link = build_referral_link(bot_username, user.referral_code)
 
     await callback.message.edit_text("✅ Правила приняты.")
     await callback.message.answer(
@@ -55,8 +73,14 @@ async def profile_handler(message: Message):
         await message.answer("Сначала нажмите /start")
         return
 
-    bot_info = await message.bot.get_me()
-    referral_link = f"https://t.me/{bot_info.username}?start={user.referral_code}"
+    bot_username = None
+    try:
+        bot_info = await message.bot.get_me()
+        bot_username = bot_info.username
+    except Exception:
+        pass
+
+    referral_link = build_referral_link(bot_username, user.referral_code)
 
     await message.answer(
         f"👤 Профиль\n\n"
@@ -91,8 +115,14 @@ async def referrals_handler(message: Message):
         await message.answer("Сначала нажмите /start")
         return
 
-    bot_info = await message.bot.get_me()
-    referral_link = f"https://t.me/{bot_info.username}?start={user.referral_code}"
+    bot_username = None
+    try:
+        bot_info = await message.bot.get_me()
+        bot_username = bot_info.username
+    except Exception:
+        pass
+
+    referral_link = build_referral_link(bot_username, user.referral_code)
 
     await message.answer(
         f"👥 Реферальная система\n\n"
